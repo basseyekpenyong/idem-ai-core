@@ -21,9 +21,8 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 import streamlit as st
 import streamlit.components.v1
 
-# Resolve paths relative to repo root regardless of CWD
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_MANIFEST = _REPO_ROOT / "master_manifest.jsonl"
+# Data lives outside OneDrive to avoid sync-lock conflicts
+_DEFAULT_MANIFEST = Path.home() / "idem-ai-data" / "master_manifest.jsonl"
 
 st.set_page_config(
     page_title="IdemAI Core",

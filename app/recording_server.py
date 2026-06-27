@@ -33,9 +33,10 @@ from engine.audio_pipeline import manifest_stats, process_audio
 from engine.script_generator import mock_scripts
 from engine.validator import validate
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_MANIFEST = _REPO_ROOT / "master_manifest.jsonl"
-_DEFAULT_OUTPUT = _REPO_ROOT / "data" / "processed"
+# Store data OUTSIDE OneDrive to avoid sync-lock conflicts with soundfile
+_DATA_ROOT        = Path.home() / "idem-ai-data"
+_DEFAULT_MANIFEST = _DATA_ROOT / "master_manifest.jsonl"
+_DEFAULT_OUTPUT   = _DATA_ROOT / "processed"
 
 app = FastAPI(title="IdemAI Recording Studio", version="1.0.0")
 
