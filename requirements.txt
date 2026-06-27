@@ -1,0 +1,18 @@
+# Core pipeline
+anthropic>=0.40.0          # Aziz Agent (Claude API)
+numpy>=1.26.0
+scipy>=1.13.0              # Audio resampling (resample_poly)
+soundfile>=0.12.1          # Audio read/write (WAV, FLAC, etc.)
+
+# Dashboard & recording server
+streamlit>=1.35.0
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9    # Required by FastAPI for file uploads
+
+# Voice capture & STT (agent command input — English only)
+sounddevice>=0.4.6
+openai-whisper>=20240930   # Local Whisper model for transcription
+
+# Dev & testing
+pytest>=8.0.0
