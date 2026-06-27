@@ -141,7 +141,25 @@ def render_aziz() -> None:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    user_input = st.chat_input("Type a command… e.g. 'validate this Yoruba text: Ẹ káàárọ̀'")
+    # Suggested commands the user can click
+    st.caption("Try asking:")
+    cols = st.columns(3)
+    suggestions = [
+        "Generate 5 Efik scripts",
+        "Show dataset status",
+        "List files in Downloads",
+    ]
+    for col, suggestion in zip(cols, suggestions):
+        if col.button(suggestion, use_container_width=True):
+            st.session_state["_suggested"] = suggestion
+
+    user_input = st.chat_input(
+        "e.g. 'generate 5 Efik scripts' · 'validate Ibibio text: …' · 'show dataset status'"
+    )
+    # Handle suggestion button clicks
+    if "_suggested" in st.session_state:
+        user_input = st.session_state.pop("_suggested")
+
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
@@ -150,6 +168,7 @@ def render_aziz() -> None:
         with st.chat_message("assistant"):
             with st.spinner("Aziz is thinking…"):
                 try:
+                    import json
                     from agent.aziz_orchestrator import AzizOrchestrator
                     aziz = AzizOrchestrator(
                         api_key=api_key,
@@ -157,10 +176,37 @@ def render_aziz() -> None:
                     )
                     response = aziz.run(user_input)
                     backend_label = "Gemini" if aziz.backend == "gemini" else "Claude"
-                    reply = (
-                        f"*via {backend_label}* · **Tool:** `{response.tool_name}`\n\n"
-                        f"```json\n{response.result}\n```"
-                    )
+
+                    # Human-readable summary for common tools
+                    result = response.result
+                    summary = ""
+                    if response.tool_name == "generate_scripts":
+                        chunks = result.get("chunks", [])
+                        summary = f"Generated {len(chunks)} script chunk(s):\n\n"
+                        for i, c in enumerate(chunks, 1):
+                            summary += f"**{i}.** {c['text']}  `{c['word_count']} words`\n\n"
+                    elif response.tool_name == "get_status":
+                        summary = (
+                            f"📦 **{result.get('total_entries', 0)}** total entries · "
+                            f"✅ **{result.get('clean_entries', 0)}** clean · "
+                            f"⏱ **{result.get('clean_hours', 0):.3f} hours**"
+                        )
+                    elif response.tool_name == "browse_local_files":
+                        files = result.get("files", [])
+                        if files:
+                            summary = f"Found {len(files)} file(s):\n" + "\n".join(f"- `{f}`" for f in files[:20])
+                        else:
+                            summary = f"No files found in `{result.get('directory', '.')}`."
+                    elif response.tool_name == "validate_text":
+                        if result.get("is_valid"):
+                            summary = f"✅ Text is valid for `{result.get('language', '')}`."
+                        else:
+                            errs = result.get("errors", [])
+                            summary = f"❌ Invalid — {len(errs)} issue(s):\n" + "\n".join(f"- {e}" for e in errs)
+
+                    reply = f"*via {backend_label}* · `{response.tool_name}`\n\n"
+                    reply += summary if summary else f"```json\n{json.dumps(result, indent=2, ensure_ascii=False)}\n```"
+
                 except Exception as e:
                     reply = f"❌ Error: {e}"
 
