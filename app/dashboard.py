@@ -37,11 +37,17 @@ with st.sidebar:
         value=str(_DEFAULT_MANIFEST),
         help="Path to master_manifest.jsonl",
     )
+    _default_key = (
+        os.environ.get("GOOGLE_API_KEY")
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+        or ""
+    )
     api_key = st.text_input(
-        "Anthropic API key",
-        value=os.environ.get("ANTHROPIC_API_KEY", ""),
+        "API key (Gemini or Anthropic)",
+        value=_default_key,
         type="password",
-        help="Required for the Aziz Agent console",
+        help="Gemini: AIza… key from aistudio.google.com (free). Anthropic: sk-ant-… key.",
     )
     language_filter = st.selectbox(
         "Language filter (scripts view)",
@@ -117,10 +123,10 @@ def render_aziz() -> None:
 
     if not api_key:
         st.warning(
-            "**Aziz needs your Anthropic API key.** "
-            "Enter it in the sidebar, or create a `.env` file in the repo root with:\n\n"
-            "```\nANTHROPIC_API_KEY=sk-ant-your-key-here\n```\n\n"
-            "Then restart the dashboard with `run.ps1`."
+            "**Aziz needs an API key.** Enter it in the sidebar, or add one to `.env` and restart.\n\n"
+            "**Option A — Gemini (free):** get a key at [aistudio.google.com](https://aistudio.google.com) "
+            "→ add `GOOGLE_API_KEY=AIza...` to `.env`\n\n"
+            "**Option B — Anthropic:** add `ANTHROPIC_API_KEY=sk-ant-...` to `.env`"
         )
         return
 
@@ -146,8 +152,9 @@ def render_aziz() -> None:
                         config={"manifest_path": manifest_path},
                     )
                     response = aziz.run(user_input)
+                    backend_label = "Gemini" if aziz.backend == "gemini" else "Claude"
                     reply = (
-                        f"**Tool:** `{response.tool_name}`\n\n"
+                        f"*via {backend_label}* · **Tool:** `{response.tool_name}`\n\n"
                         f"```json\n{response.result}\n```"
                     )
                 except Exception as e:
