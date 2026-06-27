@@ -78,9 +78,14 @@ YORUBA = LanguageProfile(
 # Closely related to Ibibio. Uses open-mid vowels ɔ/ɛ and nasal ŋ/ñ.
 # ---------------------------------------------------------------------------
 _EFIK_BASE: FrozenSet[str] = frozenset(
-    "abdefghijklmnoprstuwABDEFGHIJKLMNOPRSTUW"
+    # Full Latin alphabet — y is used in Efik (e.g. eyen, yak)
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    # Efik-specific extended vowels
     "ɔɛñŋ"      # open-o, open-e, n-tilde, eng
     "ƆƐÑŊ"
+    "ọụị"       # dot-below variants also appear in some Efik orthographies
+    "ỌỤỊ"
     # Precomposed tone-marked vowels
     "àáèéìíòóùú"
     "ÀÁÈÉÌÍÒÓÙÚ"
@@ -99,9 +104,14 @@ EFIK = LanguageProfile(
 # Dialect continuum with Efik. Identical technical character requirements.
 # ---------------------------------------------------------------------------
 _IBIBIO_BASE: FrozenSet[str] = frozenset(
-    "abdefghijklmnoprstuwABDEFGHIJKLMNOPRSTUW"
+    # Full Latin alphabet
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    # Ibibio extended vowels — dot-below series is common in Ibibio orthography
     "ɔɛŋ"
     "ƆƐŊ"
+    "ọụịẹ"      # o-dot, u-dot, i-dot, e-dot — all used in Ibibio
+    "ỌỤỊẸ"
     "àáèéìíòóùú"
     "ÀÁÈÉÌÍÒÓÙÚ"
 )
