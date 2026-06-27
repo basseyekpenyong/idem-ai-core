@@ -231,9 +231,15 @@ def _detect_backend(api_key: str | None) -> tuple[str, str]:
     Return (backend, resolved_key) — checks the supplied key first, then env vars.
     Priority: Gemini > Anthropic (Gemini has a free tier so it's the easier default).
     """
+    # If a key is supplied directly, detect by prefix — anything that isn't
+    # an Anthropic key is treated as Gemini (covers both AIza... and AQ.Ab8... formats)
+    if api_key and api_key.strip():
+        key = api_key.strip()
+        if key.startswith("sk-ant-"):
+            return "anthropic", key
+        return "gemini", key  # Gemini keys: AIza... or AQ.... both valid
+
     candidates = [
-        ("gemini",    api_key if api_key and api_key.startswith("AIza") else None),
-        ("anthropic", api_key if api_key and api_key.startswith("sk-ant-") else None),
         ("gemini",    os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")),
         ("anthropic", os.environ.get("ANTHROPIC_API_KEY")),
     ]

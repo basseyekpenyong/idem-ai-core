@@ -15,6 +15,9 @@ Run: streamlit run app/dashboard.py
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 import streamlit as st
 
 # Resolve paths relative to repo root regardless of CWD

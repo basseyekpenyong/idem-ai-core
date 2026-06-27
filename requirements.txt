@@ -26,5 +26,8 @@ google-auth-oauthlib>=1.2.0
 # Colab notebook generation (dataset export + Whisper fine-tuning)
 nbformat>=5.10.0
 
+# Env / config
+python-dotenv>=1.0.0       # Auto-loads .env so API keys work however the server is started
+
 # Dev & testing
 pytest>=8.0.0
