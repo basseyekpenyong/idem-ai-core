@@ -94,6 +94,7 @@ async def submit_recording(
         tmp_path = Path(tmp.name)
 
     try:
+        _DEFAULT_OUTPUT.mkdir(parents=True, exist_ok=True)
         entry = process_audio(
             audio_path=tmp_path,
             transcription=val.normalized_text,
@@ -106,6 +107,8 @@ async def submit_recording(
             output_dir=_DEFAULT_OUTPUT,
             manifest_path=_DEFAULT_MANIFEST,
         )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
     finally:
         tmp_path.unlink(missing_ok=True)
 
@@ -199,9 +202,12 @@ function encodeWAV(samples, sampleRate) {
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
-let audioCtx = null, source = null, processor = null;
+let audioCtx = null, source = null, processor = null, analyser = null;
 let pcmBufs = [], audioBlob = null, recording = false;
+let silenceTimer = null;
 let speakerEdited = false;  // true once user manually changes the field
+const SILENCE_THRESHOLD = 0.01;  // RMS below this = silence
+const SILENCE_SECONDS   = 2.0;   // stop after 2s of silence
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function setStatus(msg, cls) {
@@ -256,22 +262,36 @@ async function toggleRecord() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioCtx  = new AudioContext();
       source    = audioCtx.createMediaStreamSource(stream);
+      analyser  = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
       processor = audioCtx.createScriptProcessor(4096, 1, 1);
       pcmBufs   = [];
+
       processor.onaudioprocess = e => {
-        pcmBufs.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+        const buf = new Float32Array(e.inputBuffer.getChannelData(0));
+        pcmBufs.push(new Float32Array(buf));
+        // RMS energy check for silence detection
+        const rms = Math.sqrt(buf.reduce((s, v) => s + v*v, 0) / buf.length);
+        if (rms < SILENCE_THRESHOLD) {
+          if (!silenceTimer) {
+            silenceTimer = setTimeout(() => { if (recording) toggleRecord(); }, SILENCE_SECONDS * 1000);
+          }
+        } else {
+          clearTimeout(silenceTimer); silenceTimer = null;
+        }
       };
       source.connect(processor);
       processor.connect(audioCtx.destination);
       recording = true;
       document.getElementById('rec-btn').textContent = '⏹ Stop';
       document.getElementById('submit-btn').disabled = true;
-      setStatus('Recording… speak clearly.');
+      setStatus('🔴 Recording… speak clearly. Auto-stops after 2s of silence.');
     } catch (e) {
       setStatus('Microphone error: ' + e.message, 'err');
     }
   } else {
     // Stop and encode as WAV
+    clearTimeout(silenceTimer); silenceTimer = null;
     processor.disconnect(); source.disconnect();
     const sr = audioCtx.sampleRate;
     audioCtx.close();
