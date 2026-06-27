@@ -142,7 +142,7 @@ def render_aziz() -> None:
                     )
                     response = aziz.run(user_input)
                     reply = (
-                        f"**Intent:** `{response.intent}`\n\n"
+                        f"**Tool:** `{response.tool_name}`\n\n"
                         f"```json\n{response.result}\n```"
                     )
                 except Exception as e:

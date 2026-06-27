@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, Form, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from engine.audio_pipeline import manifest_stats, process_audio
 from engine.script_generator import mock_scripts
@@ -35,6 +35,11 @@ _DEFAULT_MANIFEST = _REPO_ROOT / "master_manifest.jsonl"
 _DEFAULT_OUTPUT = _REPO_ROOT / "data" / "processed"
 
 app = FastAPI(title="IdemAI Recording Studio", version="1.0.0")
+
+
+@app.get("/")
+def root() -> RedirectResponse:
+    return RedirectResponse(url="/studio")
 
 
 # ---------------------------------------------------------------------------
