@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import streamlit as st
+import streamlit.components.v1
 
 # Resolve paths relative to repo root regardless of CWD
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -171,9 +172,18 @@ def render_aziz() -> None:
 # Main layout
 # ---------------------------------------------------------------------------
 st.title("🎙️ IdemAI Core")
-st.caption("Multi-language ASR data factory — Efik · Ibibio · Yoruba")
+st.caption("Multi-language ASR data factory — Efik · Ibibio · Nigerian English")
 
-tab_metrics, tab_scripts, tab_aziz = st.tabs(["📊 Metrics", "📝 Scripts", "🤖 Aziz"])
+tab_studio, tab_metrics, tab_scripts, tab_aziz = st.tabs(
+    ["🎙️ Recording Studio", "📊 Metrics", "📝 Scripts", "🤖 Aziz"]
+)
+
+with tab_studio:
+    st.components.v1.iframe(
+        src="http://localhost:8001/studio",
+        height=640,
+        scrolling=True,
+    )
 
 with tab_metrics:
     render_metrics()
