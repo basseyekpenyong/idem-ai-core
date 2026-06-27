@@ -31,7 +31,7 @@ from engine.vocab_manager import VOCAB_EXECUTOR, VOCAB_TOOLS
 from agent.tools.drive_tools import DRIVE_EXECUTOR, DRIVE_TOOLS
 
 _ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
-_GEMINI_MODEL    = "gemini-2.0-flash"
+_GEMINI_MODEL    = "gemini-flash-lite-latest"
 
 _ALL_LANGUAGES = ["efi", "ibb", "en_NG"]
 
@@ -259,11 +259,17 @@ def _to_gemini_schema(spec: dict):
         "number": types.Type.NUMBER, "boolean": types.Type.BOOLEAN,
         "array":  types.Type.ARRAY,  "object":  types.Type.OBJECT,
     }
-    return types.Schema(
-        type=type_map.get(spec.get("type", "string"), types.Type.STRING),
+    t = type_map.get(spec.get("type", "string"), types.Type.STRING)
+    kwargs = dict(
+        type=t,
         description=spec.get("description", ""),
         enum=spec.get("enum") or [],
     )
+    # Arrays need an items sub-schema; default to STRING items if unspecified
+    if t == types.Type.ARRAY:
+        items_spec = spec.get("items", {"type": "string"})
+        kwargs["items"] = _to_gemini_schema(items_spec)
+    return types.Schema(**kwargs)
 
 
 def _to_gemini_function(t: dict):
