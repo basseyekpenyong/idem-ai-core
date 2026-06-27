@@ -14,5 +14,16 @@ python-multipart>=0.0.9    # Required by FastAPI for file uploads
 sounddevice>=0.4.6
 openai-whisper>=20240930   # Local Whisper model for transcription
 
+# TTS — Microsoft Edge voices (Yoruba, Nigerian English, Igbo; no API key needed)
+edge-tts>=6.1.9
+
+# Google Drive integration
+google-api-python-client>=2.130.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.2.0
+
+# Colab notebook generation (dataset export + Whisper fine-tuning)
+nbformat>=5.10.0
+
 # Dev & testing
 pytest>=8.0.0

@@ -172,6 +172,94 @@ def read_manifest(manifest_path: Path) -> list[ManifestEntry]:
     return entries
 
 
+def export_dataset(
+    manifest_path: Path,
+    output_path: Path,
+    language_code: str | None = None,
+    min_snr_db: float = 15.0,
+    include_clipped: bool = False,
+    splits: list[str] | None = None,
+) -> dict:
+    """
+    Export a clean dataset.json from the manifest, ready for model training.
+
+    Filters:
+      - Optionally restricts to one language_code (None = all languages)
+      - Removes clipped recordings (unless include_clipped=True)
+      - Removes low-SNR recordings (below min_snr_db)
+      - Optionally restricts to specific splits
+
+    Output format (HuggingFace-compatible):
+    {
+      "meta": { "language": "yo", "min_snr_db": 15.0, ... },
+      "train": [{ "audio_filepath", "text", "duration", "speaker_id", ... }],
+      "dev":   [...],
+      "test":  [...]
+    }
+
+    Args:
+        manifest_path: Path to master_manifest.jsonl
+        output_path:   Where to write dataset.json
+        language_code: Filter to one language, or None for all
+        min_snr_db:    Minimum SNR to include (default 15.0 dB)
+        include_clipped: If False (default), drop clipped recordings
+        splits:        List of splits to include, e.g. ["train", "dev"] (default: all)
+
+    Returns:
+        Summary dict with entry counts per split.
+    """
+    import json
+
+    entries = read_manifest(manifest_path)
+    splits = splits or ["train", "dev", "test"]
+
+    filtered = [
+        e for e in entries
+        if (language_code is None or e.language == language_code)
+        and e.split in splits
+        and e.quality_snr_db >= min_snr_db
+        and (include_clipped or not e.quality_clipping)
+    ]
+
+    buckets: dict[str, list[dict]] = {s: [] for s in splits}
+    for e in filtered:
+        record = {
+            "audio_filepath": e.audio_filepath,
+            "text":           e.text,
+            "duration":       e.duration,
+            "language":       e.language,
+            "speaker_id":     e.speaker_id,
+            "speaker_gender": e.speaker_gender,
+            "dialect":        e.dialect,
+            "hash_id":        e.hash_id,
+        }
+        buckets[e.split].append(record)
+
+    dataset = {
+        "meta": {
+            "language":       language_code or "all",
+            "min_snr_db":     min_snr_db,
+            "include_clipped":include_clipped,
+            "total_entries":  len(filtered),
+            "splits":         splits,
+        },
+        **buckets,
+    }
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(dataset, f, ensure_ascii=False, indent=2)
+
+    summary = {
+        "output_path":   str(output_path),
+        "total_clean":   len(filtered),
+        "by_split":      {s: len(buckets[s]) for s in splits},
+        "total_hours":   round(sum(e.duration for e in filtered) / 3600, 3),
+    }
+    return summary
+
+
 def manifest_stats(manifest_path: Path) -> dict:
     """Return summary statistics for the manifest (used by the dashboard)."""
     entries = read_manifest(manifest_path)

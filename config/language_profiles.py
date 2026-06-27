@@ -114,12 +114,35 @@ IBIBIO = LanguageProfile(
 
 
 # ---------------------------------------------------------------------------
+# Nigerian Accented English (en_NG)
+# Standard ASCII orthography — the accent is captured in the audio.
+# Useful for building ASR models robust to Nigerian English phonology.
+# ---------------------------------------------------------------------------
+_EN_NG_BASE: FrozenSet[str] = frozenset(
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    # Common loanword / proper-name diacritics that appear in Nigerian English text
+    "àáâãäåèéêëìíîïòóôõöùúûü"
+    "ÀÁÂÃÄÅÈÉÊËÌÍÎÏÒÓÔÕÖÙÚÛÜ"
+)
+
+EN_NG = LanguageProfile(
+    code="en_NG",
+    name="Nigerian English",
+    base_chars=_EN_NG_BASE,
+    extra_combining=frozenset(),  # Standard English text needs no extra combining marks
+    punctuation=frozenset(" .,!?;:'-–—\n\t\"()"),
+)
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 REGISTRY: dict[str, LanguageProfile] = {
-    "yo":  YORUBA,
-    "efi": EFIK,
-    "ibb": IBIBIO,
+    "yo":    YORUBA,
+    "efi":   EFIK,
+    "ibb":   IBIBIO,
+    "en_NG": EN_NG,
 }
 
 
