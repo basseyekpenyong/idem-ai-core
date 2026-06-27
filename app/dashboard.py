@@ -45,8 +45,8 @@ with st.sidebar:
     )
     language_filter = st.selectbox(
         "Language filter (scripts view)",
-        options=["yo", "efi", "ibb"],
-        format_func=lambda c: {"yo": "Yoruba", "efi": "Efik", "ibb": "Ibibio"}[c],
+        options=["efi", "ibb", "en_NG"],
+        format_func=lambda c: {"efi": "Efik", "ibb": "Ibibio", "en_NG": "Nigerian English"}[c],
     )
 
 # ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ def render_metrics() -> None:
 
     if stats["by_language_hours"]:
         st.markdown("**Hours by language (clean)**")
-        lang_names = {"yo": "Yoruba", "efi": "Efik", "ibb": "Ibibio"}
+        lang_names = {"efi": "Efik", "ibb": "Ibibio", "en_NG": "Nigerian English"}
         for code, hours in sorted(stats["by_language_hours"].items()):
             label = lang_names.get(code, code)
             st.progress(
@@ -116,7 +116,12 @@ def render_aziz() -> None:
     st.subheader("🤖 Aziz Agent Console")
 
     if not api_key:
-        st.warning("Set your Anthropic API key in the sidebar to use the Aziz Agent.")
+        st.warning(
+            "**Aziz needs your Anthropic API key.** "
+            "Enter it in the sidebar, or create a `.env` file in the repo root with:\n\n"
+            "```\nANTHROPIC_API_KEY=sk-ant-your-key-here\n```\n\n"
+            "Then restart the dashboard with `run.ps1`."
+        )
         return
 
     if "chat_history" not in st.session_state:

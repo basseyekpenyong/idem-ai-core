@@ -137,7 +137,10 @@ _STUDIO_HTML = """<!DOCTYPE html>
   button { cursor: pointer; background: #f2994a; color: #000; border: none; font-weight: 600; }
   button:disabled { background: #555; color: #999; cursor: not-allowed; }
   #script-box { background: #1e2130; border-radius: 8px; padding: 20px; margin: 20px 0; font-size: 18px; line-height: 1.6; min-height: 60px; }
-  #status { color: #56ccf2; margin-top: 10px; }
+  #status { margin-top: 10px; min-height: 1.4em; }
+  .status-ok  { color: #6fcf97; }
+  .status-err { color: #eb5757; }
+  .status-inf { color: #56ccf2; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
   label { font-size: 13px; color: #aaa; }
 </style>
@@ -147,13 +150,13 @@ _STUDIO_HTML = """<!DOCTYPE html>
 
 <div class="row">
   <label>Language</label>
-  <select id="lang">
-    <option value="yo">Yoruba</option>
+  <select id="lang" onchange="onLangChange()">
     <option value="efi">Efik</option>
     <option value="ibb">Ibibio</option>
+    <option value="en_NG">Nigerian English</option>
   </select>
   <label>Speaker ID</label>
-  <input id="speaker-id" placeholder="e.g. spk_001" style="width:120px">
+  <input id="speaker-id" style="width:160px">
   <label>Gender</label>
   <select id="gender"><option value="M">M</option><option value="F">F</option><option value="U">U</option></select>
   <label>Age</label>
@@ -167,72 +170,152 @@ _STUDIO_HTML = """<!DOCTYPE html>
 </div>
 
 <div id="script-box">Press "Load Script" to get a sentence to record.</div>
-<p id="status"></p>
+<p id="status" class="status-inf"></p>
 
 <script>
-let mediaRecorder, audioBlob, chunks = [], recording = false;
-const status = id => document.getElementById('status').textContent = id;
-
-async function loadScript() {
-  const lang = document.getElementById('lang').value;
-  const res = await fetch('/scripts/' + lang + '?count=1');
-  const data = await res.json();
-  document.getElementById('script-box').textContent = data[0]?.text || 'No script available.';
-  document.getElementById('rec-btn').disabled = false;
-  document.getElementById('submit-btn').disabled = true;
-  audioBlob = null;
-  status('Script loaded. Press Record when ready.');
+// ── WAV encoder (pure JS — no webm/ffmpeg needed) ───────────────────────────
+function encodeWAV(samples, sampleRate) {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const v   = new DataView(buf);
+  function ws(o, s) { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); }
+  ws(0,  'RIFF'); v.setUint32(4, 36 + samples.length * 2, true);
+  ws(8,  'WAVE'); ws(12, 'fmt ');
+  v.setUint32(16, 16, true);            // PCM chunk size
+  v.setUint16(20,  1, true);            // PCM format
+  v.setUint16(22,  1, true);            // mono
+  v.setUint32(24, sampleRate,     true);
+  v.setUint32(28, sampleRate * 2, true);
+  v.setUint16(32, 2, true);             // block align
+  v.setUint16(34, 16, true);            // 16-bit
+  ws(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0, o = 44; i < samples.length; i++, o += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return new Blob([buf], { type: 'audio/wav' });
 }
 
-async function toggleRecord() {
-  if (!recording) {
-    chunks = [];
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-    mediaRecorder.ondataavailable = e => chunks.push(e.data);
-    mediaRecorder.onstop = () => {
-      audioBlob = new Blob(chunks, { type: 'audio/webm' });
-      document.getElementById('submit-btn').disabled = false;
-      status('Recording complete. Review and Submit.');
-    };
-    mediaRecorder.start();
-    recording = true;
-    document.getElementById('rec-btn').textContent = '⏹ Stop';
-    status('Recording… speak clearly.');
-  } else {
-    mediaRecorder.stop();
-    mediaRecorder.stream.getTracks().forEach(t => t.stop());
-    recording = false;
-    document.getElementById('rec-btn').textContent = '⏺ Record';
+// ── State ────────────────────────────────────────────────────────────────────
+let audioCtx = null, source = null, processor = null;
+let pcmBufs = [], audioBlob = null, recording = false;
+let speakerEdited = false;  // true once user manually changes the field
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function setStatus(msg, cls) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status-' + (cls || 'inf');
+}
+
+const SPEAKER_PREFIX = { 'efi': 'efi', 'ibb': 'ibi', 'en_NG': 'eng' };
+function autoSpeakerId(lang) {
+  return (SPEAKER_PREFIX[lang] || lang) + '_speaker001';
+}
+
+function onLangChange() {
+  if (!speakerEdited) {
+    document.getElementById('speaker-id').value = autoSpeakerId(
+      document.getElementById('lang').value
+    );
+  }
+  // Reset recording state when language changes
+  audioBlob = null;
+  document.getElementById('submit-btn').disabled = true;
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  const spkInput = document.getElementById('speaker-id');
+  spkInput.value = autoSpeakerId(document.getElementById('lang').value);
+  spkInput.addEventListener('input', () => { speakerEdited = true; });
+});
+
+// ── Script loading ────────────────────────────────────────────────────────────
+async function loadScript() {
+  const lang = document.getElementById('lang').value;
+  try {
+    const res  = await fetch('/scripts/' + lang + '?count=1');
+    const data = await res.json();
+    document.getElementById('script-box').textContent = data[0]?.text || 'No script available.';
+    document.getElementById('rec-btn').disabled = false;
+    document.getElementById('submit-btn').disabled = true;
+    audioBlob = null;
+    setStatus('Script loaded. Press Record when ready.');
+  } catch (e) {
+    setStatus('Could not load script: ' + e.message, 'err');
   }
 }
 
+// ── Recording ─────────────────────────────────────────────────────────────────
+async function toggleRecord() {
+  if (!recording) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioCtx  = new AudioContext();
+      source    = audioCtx.createMediaStreamSource(stream);
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      pcmBufs   = [];
+      processor.onaudioprocess = e => {
+        pcmBufs.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      };
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+      recording = true;
+      document.getElementById('rec-btn').textContent = '⏹ Stop';
+      document.getElementById('submit-btn').disabled = true;
+      setStatus('Recording… speak clearly.');
+    } catch (e) {
+      setStatus('Microphone error: ' + e.message, 'err');
+    }
+  } else {
+    // Stop and encode as WAV
+    processor.disconnect(); source.disconnect();
+    const sr = audioCtx.sampleRate;
+    audioCtx.close();
+    const total = pcmBufs.reduce((s, b) => s + b.length, 0);
+    const all   = new Float32Array(total);
+    let off = 0;
+    for (const b of pcmBufs) { all.set(b, off); off += b.length; }
+    audioBlob = encodeWAV(all, sr);
+    recording = false;
+    document.getElementById('rec-btn').textContent = '⏺ Record';
+    document.getElementById('submit-btn').disabled = false;
+    setStatus('Recording complete (' + (total / sr).toFixed(1) + 's). Press Submit.');
+  }
+}
+
+// ── Submit ────────────────────────────────────────────────────────────────────
 async function submitRecording() {
   if (!audioBlob) return;
-  const text = document.getElementById('script-box').textContent;
-  const lang = document.getElementById('lang').value;
-  const spk = document.getElementById('speaker-id').value || 'anon';
+  const text   = document.getElementById('script-box').textContent;
+  const lang   = document.getElementById('lang').value;
+  const spk    = document.getElementById('speaker-id').value || autoSpeakerId(lang);
   const gender = document.getElementById('gender').value;
-  const age = document.getElementById('age').value;
+  const age    = document.getElementById('age').value;
 
   const form = new FormData();
-  form.append('audio', audioBlob, 'recording.webm');
-  form.append('transcription', text);
-  form.append('language_code', lang);
-  form.append('speaker_id', spk);
-  form.append('speaker_gender', gender);
+  form.append('audio',            audioBlob, 'recording.wav');
+  form.append('transcription',    text);
+  form.append('language_code',    lang);
+  form.append('speaker_id',       spk);
+  form.append('speaker_gender',   gender);
   form.append('speaker_age_range', age);
 
-  status('Submitting…');
-  const res = await fetch('/submit', { method: 'POST', body: form });
-  const data = await res.json();
-
-  if (res.ok) {
-    const clean = data.is_clean ? '✅ Clean' : '⚠️ Low quality';
-    status(`Saved! ${clean} | Duration: ${data.duration}s | SNR: ${data.quality_snr_db} dB`);
-    document.getElementById('submit-btn').disabled = true;
-  } else {
-    status('Error: ' + JSON.stringify(data.detail));
+  setStatus('Submitting…');
+  document.getElementById('submit-btn').disabled = true;
+  try {
+    const res  = await fetch('/submit', { method: 'POST', body: form });
+    const data = await res.json();
+    if (res.ok) {
+      const q = data.is_clean ? '✅ Clean' : '⚠️ Low quality';
+      setStatus(q + ' | Duration: ' + data.duration + 's | SNR: ' + data.quality_snr_db + ' dB', 'ok');
+    } else {
+      setStatus('Rejected: ' + JSON.stringify(data.detail), 'err');
+      document.getElementById('submit-btn').disabled = false;
+    }
+  } catch (e) {
+    setStatus('Network error: ' + e.message, 'err');
+    document.getElementById('submit-btn').disabled = false;
   }
 }
 </script>

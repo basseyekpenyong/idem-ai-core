@@ -30,7 +30,7 @@ from agent.tools.drive_tools import DRIVE_EXECUTOR, DRIVE_TOOLS
 
 MODEL = "claude-haiku-4-5-20251001"
 
-_ALL_LANGUAGES = ["yo", "efi", "ibb", "en_NG"]
+_ALL_LANGUAGES = ["efi", "ibb", "en_NG"]
 
 
 @dataclass
@@ -237,7 +237,7 @@ class AzizOrchestrator:
                 "(2) Google Drive — list, download, upload, rename, move files; generate and upload Whisper training notebooks. "
                 "(3) Media — convert text files to speech (TTS), transcribe any audio file to text (STT), "
                 "browse local files (file explorer), rename/move local files, fix file extensions automatically. "
-                "Supported languages: Yoruba (yo), Efik (efi), Ibibio (ibb), Nigerian English (en_NG). "
+                "Supported languages: Efik (efi), Ibibio (ibb), Nigerian English (en_NG). "
                 "(4) Vocabulary — add/remove characters from a language's whitelist, test words, "
                 "list the full character inventory, export a reference sheet for linguist sign-off. "
                 "Custom character changes are saved permanently to data/vocab/<lang>_custom.json."
