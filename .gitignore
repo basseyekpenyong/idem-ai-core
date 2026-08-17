@@ -1,0 +1,25 @@
+# Secrets
+.env
+credentials.json
+token.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Data — corpus, transcripts, and generated dataset files never go into git
+data/
+*.wav
+*.jsonl
+
+# Whisper model cache
+models/
+
+# OS
+.DS_Store
+Thumbs.db
