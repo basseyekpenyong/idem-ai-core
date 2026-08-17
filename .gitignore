@@ -1,0 +1,27 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Data (large files — commit manifests only if small)
+data/processed/
+data/raw/
+data/corpus/
+master_manifest.jsonl
+
+# Auth tokens
+~/.idem-ai/
+
+# Whisper model cache
+models/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -15,11 +15,14 @@ Run: streamlit run app/dashboard.py
 import os
 from pathlib import Path
 
-import streamlit as st
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-# Resolve paths relative to repo root regardless of CWD
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_DEFAULT_MANIFEST = _REPO_ROOT / "master_manifest.jsonl"
+import streamlit as st
+import streamlit.components.v1
+
+# Data lives outside OneDrive to avoid sync-lock conflicts
+_DEFAULT_MANIFEST = Path.home() / "idem-ai-data" / "master_manifest.jsonl"
 
 st.set_page_config(
     page_title="IdemAI Core",
@@ -37,16 +40,22 @@ with st.sidebar:
         value=str(_DEFAULT_MANIFEST),
         help="Path to master_manifest.jsonl",
     )
+    _default_key = (
+        os.environ.get("GOOGLE_API_KEY")
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+        or ""
+    )
     api_key = st.text_input(
-        "Anthropic API key",
-        value=os.environ.get("ANTHROPIC_API_KEY", ""),
+        "API key (Gemini or Anthropic)",
+        value=_default_key,
         type="password",
-        help="Required for the Aziz Agent console",
+        help="Gemini: AIza… key from aistudio.google.com (free). Anthropic: sk-ant-… key.",
     )
     language_filter = st.selectbox(
         "Language filter (scripts view)",
-        options=["yo", "efi", "ibb"],
-        format_func=lambda c: {"yo": "Yoruba", "efi": "Efik", "ibb": "Ibibio"}[c],
+        options=["efi", "ibb", "en_NG"],
+        format_func=lambda c: {"efi": "Efik", "ibb": "Ibibio", "en_NG": "Nigerian English"}[c],
     )
 
 # ---------------------------------------------------------------------------
@@ -76,7 +85,7 @@ def render_metrics() -> None:
 
     if stats["by_language_hours"]:
         st.markdown("**Hours by language (clean)**")
-        lang_names = {"yo": "Yoruba", "efi": "Efik", "ibb": "Ibibio"}
+        lang_names = {"efi": "Efik", "ibb": "Ibibio", "en_NG": "Nigerian English"}
         for code, hours in sorted(stats["by_language_hours"].items()):
             label = lang_names.get(code, code)
             st.progress(
@@ -116,7 +125,12 @@ def render_aziz() -> None:
     st.subheader("🤖 Aziz Agent Console")
 
     if not api_key:
-        st.warning("Set your Anthropic API key in the sidebar to use the Aziz Agent.")
+        st.warning(
+            "**Aziz needs an API key.** Enter it in the sidebar, or add one to `.env` and restart.\n\n"
+            "**Option A — Gemini (free):** get a key at [aistudio.google.com](https://aistudio.google.com) "
+            "→ add `GOOGLE_API_KEY=AIza...` to `.env`\n\n"
+            "**Option B — Anthropic:** add `ANTHROPIC_API_KEY=sk-ant-...` to `.env`"
+        )
         return
 
     if "chat_history" not in st.session_state:
@@ -126,7 +140,25 @@ def render_aziz() -> None:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    user_input = st.chat_input("Type a command… e.g. 'validate this Yoruba text: Ẹ káàárọ̀'")
+    # Suggested commands the user can click
+    st.caption("Try asking:")
+    cols = st.columns(3)
+    suggestions = [
+        "Generate 5 Efik scripts",
+        "Show dataset status",
+        "List files in Downloads",
+    ]
+    for col, suggestion in zip(cols, suggestions):
+        if col.button(suggestion, use_container_width=True):
+            st.session_state["_suggested"] = suggestion
+
+    user_input = st.chat_input(
+        "e.g. 'generate 5 Efik scripts' · 'validate Ibibio text: …' · 'show dataset status'"
+    )
+    # Handle suggestion button clicks
+    if "_suggested" in st.session_state:
+        user_input = st.session_state.pop("_suggested")
+
     if user_input:
         st.session_state.chat_history.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
@@ -135,16 +167,45 @@ def render_aziz() -> None:
         with st.chat_message("assistant"):
             with st.spinner("Aziz is thinking…"):
                 try:
+                    import json
                     from agent.aziz_orchestrator import AzizOrchestrator
                     aziz = AzizOrchestrator(
                         api_key=api_key,
                         config={"manifest_path": manifest_path},
                     )
                     response = aziz.run(user_input)
-                    reply = (
-                        f"**Intent:** `{response.intent}`\n\n"
-                        f"```json\n{response.result}\n```"
-                    )
+                    backend_label = "Gemini" if aziz.backend == "gemini" else "Claude"
+
+                    # Human-readable summary for common tools
+                    result = response.result
+                    summary = ""
+                    if response.tool_name == "generate_scripts":
+                        chunks = result.get("chunks", [])
+                        summary = f"Generated {len(chunks)} script chunk(s):\n\n"
+                        for i, c in enumerate(chunks, 1):
+                            summary += f"**{i}.** {c['text']}  `{c['word_count']} words`\n\n"
+                    elif response.tool_name == "get_status":
+                        summary = (
+                            f"📦 **{result.get('total_entries', 0)}** total entries · "
+                            f"✅ **{result.get('clean_entries', 0)}** clean · "
+                            f"⏱ **{result.get('clean_hours', 0):.3f} hours**"
+                        )
+                    elif response.tool_name == "browse_local_files":
+                        files = result.get("files", [])
+                        if files:
+                            summary = f"Found {len(files)} file(s):\n" + "\n".join(f"- `{f}`" for f in files[:20])
+                        else:
+                            summary = f"No files found in `{result.get('directory', '.')}`."
+                    elif response.tool_name == "validate_text":
+                        if result.get("is_valid"):
+                            summary = f"✅ Text is valid for `{result.get('language', '')}`."
+                        else:
+                            errs = result.get("errors", [])
+                            summary = f"❌ Invalid — {len(errs)} issue(s):\n" + "\n".join(f"- {e}" for e in errs)
+
+                    reply = f"*via {backend_label}* · `{response.tool_name}`\n\n"
+                    reply += summary if summary else f"```json\n{json.dumps(result, indent=2, ensure_ascii=False)}\n```"
+
                 except Exception as e:
                     reply = f"❌ Error: {e}"
 
@@ -156,9 +217,18 @@ def render_aziz() -> None:
 # Main layout
 # ---------------------------------------------------------------------------
 st.title("🎙️ IdemAI Core")
-st.caption("Multi-language ASR data factory — Efik · Ibibio · Yoruba")
+st.caption("Multi-language ASR data factory — Efik · Ibibio · Nigerian English")
 
-tab_metrics, tab_scripts, tab_aziz = st.tabs(["📊 Metrics", "📝 Scripts", "🤖 Aziz"])
+tab_studio, tab_metrics, tab_scripts, tab_aziz = st.tabs(
+    ["🎙️ Recording Studio", "📊 Metrics", "📝 Scripts", "🤖 Aziz"]
+)
+
+with tab_studio:
+    st.components.v1.iframe(
+        src="http://localhost:8001/studio",
+        height=640,
+        scrolling=True,
+    )
 
 with tab_metrics:
     render_metrics()

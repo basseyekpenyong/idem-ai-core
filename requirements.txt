@@ -1,5 +1,6 @@
-# Core pipeline
-anthropic>=0.40.0          # Aziz Agent (Claude API)
+# Aziz Agent LLM backends (at least one key required)
+anthropic>=0.40.0          # Option A: Claude Haiku — ANTHROPIC_API_KEY
+google-genai>=1.0.0        # Option B: Gemini Flash — GOOGLE_API_KEY (free tier)
 numpy>=1.26.0
 scipy>=1.13.0              # Audio resampling (resample_poly)
 soundfile>=0.12.1          # Audio read/write (WAV, FLAC, etc.)
@@ -24,6 +25,9 @@ google-auth-oauthlib>=1.2.0
 
 # Colab notebook generation (dataset export + Whisper fine-tuning)
 nbformat>=5.10.0
+
+# Env / config
+python-dotenv>=1.0.0       # Auto-loads .env so API keys work however the server is started
 
 # Dev & testing
 pytest>=8.0.0
