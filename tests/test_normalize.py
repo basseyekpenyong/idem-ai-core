@@ -80,6 +80,27 @@ def test_no_empty_from_nonempty():
     assert normalize("Hello there.") != ""
 
 
+def test_comma_grouped_number_reads_as_one_number():
+    # "3,500" must be read as one number ("three thousand, five hundred"),
+    # not as two separate numbers "3" and "500". Found against a real
+    # transcript ("...trained more than 3,500 young people"): the old digit
+    # regex matched "3" and "500" independently, and the literal comma
+    # between them — with no surrounding whitespace — then vanished during
+    # punctuation removal, producing the nonsense word "threefive hundred".
+    assert normalize("3,500") == "three thousand five hundred"
+
+
+def test_punctuation_removal_does_not_glue_words():
+    # Punctuation with no surrounding whitespace (a decimal point, a colon)
+    # must become a space, not disappear — otherwise the words on either
+    # side fuse into one unreadable token. Found against a real transcript
+    # ("...weighs 12.5 kilograms..."), which produced "twelvefive kilograms"
+    # before this fix. This does not make decimals fully correct — "twelve
+    # five" is not "twelve point five" — it only stops the word-gluing; true
+    # decimal handling is still an open question (see TODO below).
+    assert normalize("12.5") == "twelve five"
+
+
 # ---------------------------------------------------------------------------
 # TODO — corpus-derived digit edge cases (years, ordinals, currency)
 #

@@ -33,23 +33,32 @@ _LOOKALIKES = {
     "—": "-",   # — em dash
 }
 
-_DIGIT_RUN_RE = re.compile(r"\d+")
+# A comma-grouped number ("3,500", "350,000") must be matched as one token —
+# tried first, since regex alternation tries options left-to-right at each
+# position — otherwise a plain \d+ would split it into "3" and "500" and
+# read them as two unrelated numbers instead of one.
+_DIGIT_RUN_RE = re.compile(r"\d{1,3}(?:,\d{3})+|\d+")
 
 
 def _expand_digit_run(match: re.Match) -> str:
     """
     Expand one run of digits to words.
 
-    ASSUMPTION — flag before relying on it: a 4-digit run is treated as a
-    year ("1995" -> "nineteen ninety-five"); anything else is a plain
-    cardinal number ("23" -> "twenty-three"). This satisfies the one digit
+    ASSUMPTION — flag before relying on it: a bare, non-comma-grouped 4-digit
+    run is treated as a year ("1995" -> "nineteen ninety-five"); everything
+    else is a plain cardinal number ("23" -> "twenty-three", "3,500" ->
+    "three thousand, five hundred"). A comma-grouped run is never treated as
+    a year — nobody writes a year as "1,998". This satisfies the one digit
     test the brief specifies today, but it's a guess about which transcripts
-    contain years vs. plain counts vs. phone numbers vs. IDs. Needs checking
-    against real corpus text once Stage A produces v5_inventory.jsonl.
+    contain years vs. plain counts. It's also known wrong for phone numbers
+    and reference IDs (e.g. "08031245678"), which real speech reads
+    digit-by-digit rather than as one huge number — that's an open decision,
+    not yet implemented; see the Stage C findings sent for review.
     """
-    digits = match.group()
+    raw = match.group()
+    digits = raw.replace(",", "")
     value = int(digits)
-    if len(digits) == 4:
+    if "," not in raw and len(digits) == 4:
         return num2words(value, to="year")
     return num2words(value)
 
@@ -84,8 +93,13 @@ def normalize(text: str) -> str:
     # ones num2words just introduced in step 3.
     text = text.replace("-", " ")
 
-    # 5. Remove all remaining punctuation (apostrophe excepted).
-    text = "".join(ch for ch in text if not _is_removable_punctuation(ch))
+    # 5. Replace all remaining punctuation with a space (apostrophe excepted).
+    # A space, not deletion — punctuation sitting directly between two tokens
+    # with no surrounding whitespace (the comma num2words leaves inside
+    # "three thousand, five hundred", or a source comma in "3,500" before
+    # step 3 even runs on it) would otherwise fuse the two tokens into one
+    # unreadable word. Step 7 collapses any resulting extra whitespace.
+    text = "".join(" " if _is_removable_punctuation(ch) else ch for ch in text)
 
     # 6. Lowercase. Runs after the token-based steps above.
     text = text.lower()
