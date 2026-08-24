@@ -42,7 +42,7 @@ def main() -> None:
     try:
         from google_auth_oauthlib.flow import InstalledAppFlow
         from googleapiclient.discovery import build
-        from google.auth.transport.requests import Request
+        from google.auth.transport.requests import Request  # noqa: F401
     except ImportError:
         print("\nMissing Google API libraries. Install them first:\n")
         print("  pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib\n")

@@ -25,10 +25,8 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
-import os
 import shutil
 from pathlib import Path
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # Voice map for edge-tts
@@ -87,7 +85,6 @@ def text_to_audio(
     """
     import tempfile
     import soundfile as sf
-    from scipy.io import wavfile
 
     voices = _TTS_VOICES.get(language_code)
     if not voices:
@@ -342,8 +339,6 @@ def map_extensions(directory: str, dry_run: bool = False) -> dict:
     Returns:
         Dict with list of renames performed (or planned if dry_run=True)
     """
-    import imghdr
-
     directory = Path(directory).expanduser()
     renames: list[dict] = []
 

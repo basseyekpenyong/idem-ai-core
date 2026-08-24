@@ -14,8 +14,6 @@ which uses the browser MediaRecorder API — a much better fit for that workflow
 
 from __future__ import annotations
 
-import io
-import os
 import tempfile
 import threading
 import time

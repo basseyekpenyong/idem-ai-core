@@ -30,7 +30,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import FrozenSet
 
-from config.language_profiles import get_profile, LanguageProfile, REGISTRY
+from config.language_profiles import get_profile
 
 _VOCAB_DIR = Path(__file__).resolve().parent.parent / "data" / "vocab"
 

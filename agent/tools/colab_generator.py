@@ -120,7 +120,7 @@ EVAL_STEPS        = 500
 GRADIENT_ACCUM    = 2       # effective batch = 32
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-print(f"Training {{LANGUAGE_NAME}} ({LANGUAGE_CODE})")
+print(f"Training {{LANGUAGE_NAME}} ({{LANGUAGE_CODE}})")
 print(f"Model:    {{MODEL_ID}}")
 print(f"Output:   {{OUTPUT_DIR}}")
 """),
@@ -276,7 +276,7 @@ def compute_metrics(pred):
     return {"wer": wer}
 """),
 
-        _cell(f"""\
+        _cell("""\
 # ── Cell 9: Training ──────────────────────────────────────────────────────────
 from transformers import Seq2SeqTrainer, Seq2SeqTrainingArguments
 

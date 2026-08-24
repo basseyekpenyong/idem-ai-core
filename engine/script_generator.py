@@ -16,7 +16,7 @@ No ML model is used — this is deterministic and runs offline.
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 MIN_WORDS = 6
 MAX_WORDS = 30

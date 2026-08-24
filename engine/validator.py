@@ -9,7 +9,6 @@ Usage:
         store(result.normalized_text)
 """
 
-import unicodedata
 from dataclasses import dataclass, field
 from config.language_profiles import get_profile
 
