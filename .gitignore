@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Data — never commit the corpus
+data/
+*.wav
+*.mp3
+*.flac
+*.jsonl
+master_manifest.jsonl
+
+# Credentials
+*.json.key
+token.json
+credentials.json
+.env
