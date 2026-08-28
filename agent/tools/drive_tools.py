@@ -21,8 +21,6 @@ Tool capabilities exposed to Aziz:
 
 from __future__ import annotations
 
-import io
-import os
 from pathlib import Path
 
 _TOKEN_PATH = Path.home() / ".idem-ai" / "token.json"

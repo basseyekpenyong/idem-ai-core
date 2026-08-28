@@ -2,12 +2,9 @@ import pytest
 from engine.script_generator import (
     ScriptChunk,
     chunk_document,
-    chunk_file,
     mock_scripts,
     MIN_WORDS,
     MAX_WORDS,
-    TARGET_MIN,
-    TARGET_MAX,
 )
 
 
