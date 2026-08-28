@@ -25,5 +25,8 @@ google-auth-oauthlib>=1.2.0
 # Colab notebook generation (dataset export + Whisper fine-tuning)
 nbformat>=5.10.0
 
+# Text normalization (Stage C)
+num2words>=0.5.13          # Digit expansion in normalize() (e.g. "1995" -> "nineteen ninety five")
+
 # Dev & testing
 pytest>=8.0.0
