@@ -25,7 +25,6 @@ from engine.audio_pipeline import export_dataset, manifest_stats, process_audio
 from engine.script_generator import chunk_file, mock_scripts
 from engine.validator import validate
 from engine.media_processor import MEDIA_EXECUTOR, MEDIA_TOOLS
-from engine.vocab_manager import VOCAB_EXECUTOR, VOCAB_TOOLS
 from agent.tools.drive_tools import DRIVE_EXECUTOR, DRIVE_TOOLS
 
 MODEL = "claude-haiku-4-5-20251001"
@@ -130,7 +129,7 @@ _PIPELINE_TOOLS: list[dict] = [
     },
 ]
 
-_ALL_TOOLS = _PIPELINE_TOOLS + DRIVE_TOOLS + MEDIA_TOOLS + VOCAB_TOOLS
+_ALL_TOOLS = _PIPELINE_TOOLS + DRIVE_TOOLS + MEDIA_TOOLS
 
 
 # ---------------------------------------------------------------------------
@@ -197,10 +196,6 @@ def _execute(tool_name: str, params: dict, config: dict) -> dict[str, Any]:
     if tool_name in MEDIA_EXECUTOR:
         return MEDIA_EXECUTOR[tool_name](params)
 
-    # ── Vocabulary management ────────────────────────────────────────────────
-    if tool_name in VOCAB_EXECUTOR:
-        return VOCAB_EXECUTOR[tool_name](params)
-
     return {"error": f"Unknown tool: {tool_name!r}"}
 
 
@@ -238,9 +233,8 @@ class AzizOrchestrator:
                 "(3) Media — convert text files to speech (TTS), transcribe any audio file to text (STT), "
                 "browse local files (file explorer), rename/move local files, fix file extensions automatically. "
                 "Supported languages: Yoruba (yo), Efik (efi), Ibibio (ibb), Nigerian English (en_NG). "
-                "(4) Vocabulary — add/remove characters from a language's whitelist, test words, "
-                "list the full character inventory, export a reference sheet for linguist sign-off. "
-                "Custom character changes are saved permanently to data/vocab/<lang>_custom.json."
+                "A language's character set is fixed in config/language_profiles.py and changed only via "
+                "pull request — you have no tool to add, remove, or otherwise widen or narrow it."
             ),
             messages=[{"role": "user", "content": user_input}],
             tools=_ALL_TOOLS,
