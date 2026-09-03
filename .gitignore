@@ -2,6 +2,7 @@
 .env
 credentials.json
 token.json
+*.json.key
 
 # Python
 __pycache__/
@@ -11,11 +12,15 @@ dist/
 build/
 .venv/
 venv/
+.pytest_cache/
 
 # Data — corpus, transcripts, and generated dataset files never go into git
 data/
 *.wav
+*.mp3
+*.flac
 *.jsonl
+master_manifest.jsonl
 
 # Whisper model cache
 models/

@@ -17,8 +17,6 @@ Then open: http://localhost:8001/studio
 
 from __future__ import annotations
 
-import io
-import os
 import tempfile
 from pathlib import Path
 from typing import Annotated
