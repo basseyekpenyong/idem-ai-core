@@ -24,7 +24,7 @@ jobs:
       - name: Install core dependencies (no audio drivers needed for CI)
         run: |
           pip install --upgrade pip
-          pip install numpy scipy soundfile anthropic pytest
+          pip install numpy scipy soundfile anthropic pytest num2words
           # Skip sounddevice and openai-whisper — they require audio hardware
           # Skip streamlit/fastapi for unit tests (import-gated in source)
 
