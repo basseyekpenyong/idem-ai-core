@@ -7,9 +7,16 @@ Companion documents, if present in the repo: `HANDOFF-nigerian-english-asr.md`
 (background), `nigerian-english-data-and-eval-cleanup.md` (full plan with the
 reasoning behind every step).
 
-**Revision 4** — 2026-08-18. Decisions marked **[settled]** were made by Jeff and
+**Revision 5** — 2026-09-09. Decisions marked **[settled]** were made by Jeff and
 are not open for relitigation. If you think one is wrong, say so and stop; do not
 work around it.
+
+*Changed in rev 5: adds the settled transcription convention (§3a) — transcripts
+record what was spoken, not the written form — and revises Stage C to match. Step 3
+no longer expands digits to words: `normalize()` never sees the audio, so it cannot
+know which of several spoken readings a written numeral stood for. Two Stage C
+questions are now recorded as explicitly undecided rather than left to inference:
+the `é ẹ ọ` characters, and whether filled pauses and false starts are transcribed.*
 
 *Changed in rev 4: Stage A now stores paths relative to a corpus root rather than
 absolute paths, and records that the inventory is a dated snapshot of a corpus
@@ -158,6 +165,53 @@ What that means concretely:
   committed profile.
 - The `export_reference()` Markdown output is worth keeping: a character
   inventory a linguist can sign off on is exactly the review artifact this needs.
+
+**[settled] Transcripts record what was spoken, not the written form.** The
+transcript for an utterance is the words as they were said: "fifty dollars", not
+"$50"; "third", not "3rd"; "fifty percent", not "50%". A phone or reference number
+is written as it is read aloud — "zero eight zero three one two four five six seven
+eight", not "08031245678".
+
+The reason is many-to-one ambiguity, and it is the entire point: one written form
+stands for several spoken ones. "$2.50" may have been said "two dollars and fifty
+cents", "two fifty", or "two and a half dollars". A transcript in written form has
+already thrown away which one it was, and nothing downstream can recover it.
+
+For an end-to-end character model the stakes differ by split, and that difference
+is worth holding onto:
+
+- In **training** text, a wrong reading is label noise — cheap at scale, and some
+  variety across readings is useful rather than harmful.
+- In a **reference** used for scoring, a wrong reading manufactures errors against
+  a model that was right. If the speaker said "two fifty" and the reference reads
+  "two dollars and fifty cents", a correct hypothesis takes several substitutions
+  and an insertion. That is the 30.21%-vs-18.54% failure in a new costume. So
+  **verbatim accuracy matters most in dev and test** — which are also the sets
+  small enough to check against audio by hand.
+
+This convention is not new, and it is not really a preference. This repo's own
+collection path already enforces it: the `en_NG` profile in
+`config/language_profiles.py` allows no digits and no currency symbols, and
+`engine/validator.py` rejects text containing them. It is also forced by the
+architecture — `ALLOWED` is 28 characters, so a CTC output layer built on it cannot
+emit a digit or a `$` whatever the transcript says.
+
+Digits can therefore only enter v5 from **outside** this repo, which is where to
+look: SLR70's official transcript index, any surviving v3/v4 text, and
+`media_processor.transcribe_audio()`, which writes Whisper's numerals into the
+manifest as ground truth (§5).
+
+**Decided: 2026-09-09 — Jeff Lilly**
+
+**Two related questions are NOT decided. Ask; do not infer them from the rule
+above:**
+
+- **`é`, `ẹ`, `ọ` and other non-ASCII letters.** These are not spoken/written
+  mismatches, so the convention does not reach them. They are still
+  out-of-vocabulary against `ALLOWED` and still need their own decision.
+- **Filled pauses, false starts, repetitions.** "What was spoken" read literally
+  includes "um" and "I— I went". Whether it should here is a separate convention
+  question, and it moves WER materially.
 
 **[settled] All changes land via pull request, reviewed by Jeff.** Do not push
 to `main`. Work on a branch, keep the diff small enough to review in one sitting,
@@ -475,14 +529,37 @@ Seven operations, **in exactly this order**:
 |---|---|---|
 | 1 | Unicode NFC | Must precede anything matching on characters |
 | 2 | Map lookalikes: `’ ‘ ′`→`'`, `“ ” ″`→`"`, `– —`→`-` | Before punctuation removal, so curly apostrophes survive as straight ones |
-| 3 | Expand digits to words (`num2words`) | Before hyphen handling — `num2words` emits hyphens |
-| 4 | Replace `-` with a space | After 3, so `twenty-three` → `twenty three` |
+| 3 | **Do not expand digits.** Detect and raise — see below | A written numeral has already lost which spoken form it stood for (§3a) |
+| 4 | Replace `-` with a space | `well-being` → `well being` |
 | 5 | Remove all remaining punctuation | Now safe |
 | 6 | Lowercase | After token-based steps, so uppercase noise tokens still match |
 | 7 | Collapse whitespace runs, strip | Cleanup |
 
 If transcripts contain noise tokens (`<UNK>`, `<NON_SPEECH_NOISE>`), handle them
 explicitly **before** step 6.
+
+**Digits, currency and ordinals — what step 3 does now.** Per §3a, a transcript
+containing `1995`, `$50`, `3rd` or `50%` is a transcript that violates the
+convention. `normalize()` cannot repair it: it never sees the audio, so any
+expansion it performs is a silent guess at one of several readings. `num2words` is
+a machine for making exactly that guess and leaving no record of having made it, so
+it comes out of step 3.
+
+`normalize()` therefore **raises** on a digit or a currency symbol — hard rule 2,
+fail loudly — and the corpus scan in the acceptance below catches those in bulk
+rather than dying on the first record. Suggested exception name:
+`idem.normalize.ConventionViolation`. Consequences to handle:
+
+- `num2words` loses its only caller. Drop it from `requirements.txt` and from the
+  CI install list in `.github/workflows/ci.yml` when step 3 is revised.
+- `test_comma_grouped_number_reads_as_one_number` and
+  `test_punctuation_removal_does_not_glue_words` currently assert expansions that
+  are no longer wanted. Rewrite them against non-digit punctuation rather than
+  deleting them — the word-gluing invariant they protect is still real.
+
+*Flagged as derived, not dictated: raising per-call and reporting in bulk is an
+engineering reading of §3a together with hard rules 2 and 3. If you think a warning
+is the better shape, say so — don't quietly soften it to one.*
 
 Tests — write these before accepting any implementation:
 
@@ -493,8 +570,11 @@ def test_curly_and_straight_apostrophe_agree():
 def test_hyphen_becomes_space():
     assert normalize("well-being") == "well being"
 
-def test_digits_expand():
-    assert normalize("in 1995") == "in nineteen ninety five"
+def test_digits_raise():
+    # A numeral means the transcript broke the §3a convention. normalize()
+    # must refuse rather than guess which spoken form it stood for.
+    with pytest.raises(ConventionViolation):
+        normalize("in 1995")
 
 def test_idempotent():
     for s in SAMPLES:
@@ -510,16 +590,27 @@ def test_no_empty_from_nonempty():
 
 `test_idempotent` and `test_output_charset` catch the most bugs. Keep them.
 
-`num2words` needs care for years, ordinals, and currency — write test cases for
-the forms that actually appear in the transcripts, not hypothetical ones.
+Write the remaining test cases against the forms that actually appear in the
+transcripts, not hypothetical ones.
 
-*Acceptance:* tests pass, **plus** a corpus-level run over every `text_raw` in
-the inventory reporting out-of-vocabulary characters (must be empty) and
-non-empty-to-empty conversions (must be zero). If OOV characters appear, print
-five example transcripts per offending character and **ask a human** what to do
-— do not add them to a deletion list. The old corpus contained `é ẹ – — ’` and
-digits; each deserves a decision. Then a human reads 30 random before/after
+*Acceptance:* tests pass, **plus** a corpus-level run over every `text_raw` in the
+inventory reporting three things, each grouped by source with counts:
+
+1. out-of-vocabulary characters — must end empty, with five example transcripts
+   printed per offending character;
+2. records rejected as §3a convention violations (digits, currency, ordinals) —
+   must end at zero, but do not expect zero on the first run;
+3. non-empty-to-empty conversions — must be zero.
+
+For both (1) and (2), **ask a human** — do not add characters to a deletion list
+and do not expand numerals to make the count go down. The old corpus contained
+`é ẹ – — ’` and digits: the digits are now settled by §3a, `– —` are handled by
+step 2, and `é ẹ` are still open (§3a). Then a human reads 30 random before/after
 pairs.
+
+The `--check` harness itself does not wait on Stage A. Write it and test it against
+a small hand-made fixture file now; only the corpus numbers need the real
+inventory.
 
 ### Stage D — Speaker-disjoint splits
 
@@ -602,6 +693,7 @@ Bring these to Jeff rather than resolving them:
 | Split strategy or target hours | Decisions about what is being measured |
 | Prompt overlap above ~20% in dev or test | Same |
 | Out-of-vocabulary characters you can't account for | Could be an encoding issue or an unknown data source |
+| A source whose transcripts carry digits, currency, or ordinals at any scale | Fixing it means re-transcription or a per-source reading convention — both corpus-composition decisions. §3a exists to stop the guess, not to license one |
 | A filter dropping more than 1% | Data problem upstream |
 | Speaker count equal to file count, or a source with 1–2 speakers and hundreds of files | Speaker regex is wrong; the split will be meaningless |
 | **WER much better than expected** | Assume leakage first |
