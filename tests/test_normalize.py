@@ -30,6 +30,18 @@ def test_curly_and_straight_apostrophe_agree():
     assert normalize("Don't") == normalize("Don’t") == "don't"
 
 
+def test_prime_mark_apostrophe_agrees():
+    # A prime mark (′, U+2032) is sometimes used as a stand-in apostrophe by
+    # transcription tools, visually close enough to ' that it's easy to miss.
+    # Before this fix it wasn't in _LOOKALIKES, so it fell through to step 5
+    # (punctuation removal) as ordinary punctuation and was deleted outright
+    # rather than kept as a straight apostrophe — splitting "don′t" into two
+    # words, "don t", instead of normalizing to "don't" like every other
+    # apostrophe form. Same invariant as the curly-apostrophe test above, for
+    # a different Unicode code point.
+    assert normalize("don′t") == normalize("don't") == "don't"
+
+
 def test_hyphen_becomes_space():
     # Hyphens must become spaces, not disappear. If they disappeared,
     # "well-being" would become "wellbeing" — one token instead of two,

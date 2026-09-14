@@ -27,8 +27,10 @@ ALLOWED = set("abcdefghijklmnopqrstuvwxyz' ")
 _LOOKALIKES = {
     "‘": "'",   # ‘ left single quotation mark
     "’": "'",   # ’ right single quotation mark
+    "′": "'",   # ′ prime — used as an apostrophe stand-in by some sources
     "“": '"',   # “ left double quotation mark
     "”": '"',   # ” right double quotation mark
+    "″": '"',   # ″ double prime
     "–": "-",   # – en dash
     "—": "-",   # — em dash
 }
