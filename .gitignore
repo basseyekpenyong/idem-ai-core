@@ -22,6 +22,10 @@ data/
 *.jsonl
 master_manifest.jsonl
 
+# ...except hand-made test fixtures, which are not corpus data and must be
+# committed for CI to run tests against them.
+!tests/fixtures/*.jsonl
+
 # Whisper model cache
 models/
 

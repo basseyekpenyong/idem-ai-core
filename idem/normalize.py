@@ -7,6 +7,12 @@ must import normalize() from here rather than each defining their own
 cleaning logic — that split is what caused the 30.21% vs 18.54% WER
 discrepancy the brief describes.
 
+Also runnable as a corpus-level check:
+
+    python -m idem.normalize --check v5_inventory.jsonl
+
+See check_corpus() below for what it reports.
+
 NOT yet implemented (out of scope until real corpus text justifies a specific
 choice — see the TODO in tests/test_normalize.py):
   - noise tokens (<UNK>, <NON_SPEECH_NOISE>)
@@ -14,12 +20,28 @@ choice — see the TODO in tests/test_normalize.py):
   - currency ("$100")
 """
 
+import argparse
+import json
 import re
 import unicodedata
 
 from num2words import num2words
 
 ALLOWED = set("abcdefghijklmnopqrstuvwxyz' ")
+
+# A digit, a currency symbol, or a percent sign means the transcript recorded
+# a written form rather than what was spoken (CLAUDE-BRIEF §3a: "fifty
+# dollars", not "$50"; "third", not "3rd"). normalize() cannot repair this —
+# it never sees the audio, so it has no way to know which spoken reading a
+# numeral stood for. This detector is the one place that question gets
+# answered, so that check_corpus() and any future revision of step 3 (which
+# will raise on exactly this) share it instead of each guessing separately.
+_CONVENTION_VIOLATION_RE = re.compile(r"[0-9$₦£€%]")
+
+
+def violates_transcription_convention(text: str) -> bool:
+    """True if text_raw contains a digit, currency symbol, or percent sign."""
+    return bool(_CONVENTION_VIOLATION_RE.search(text))
 
 # Step 2: Unicode lookalikes mapped to their plain-ASCII equivalents, done
 # before punctuation removal so curly apostrophes survive as straight ones
@@ -108,3 +130,137 @@ def normalize(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
 
     return text
+
+
+_MAX_EXAMPLES = 5  # brief's Stage C acceptance: "five example transcripts"
+
+
+def _iter_inventory_records(path: str):
+    """Yield (line_number, record) from a JSONL inventory file.
+
+    Fails loudly on anything unparseable or missing the two fields this scan
+    needs (hard rule 2) — a corpus scan that silently skipped bad records
+    could report a clean corpus that isn't.
+    """
+    with open(path, encoding="utf-8") as f:
+        for lineno, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"{path}:{lineno}: invalid JSON: {exc}") from exc
+            for field in ("text_raw", "source"):
+                if field not in record:
+                    raise ValueError(
+                        f"{path}:{lineno}: record missing required field {field!r}"
+                    )
+            yield lineno, record
+
+
+def check_corpus(path: str) -> dict:
+    """Scan a v5_inventory.jsonl-shaped file and report three things the
+    brief's Stage C acceptance requires, each grouped by source:
+
+    1. "violations": records whose text_raw contains a digit, currency
+       symbol, or percent sign (CLAUDE-BRIEF §3a). Detected directly on the
+       raw text, independent of what normalize() currently does with it —
+       even though step 3 today still expands these instead of rejecting
+       them, they must still be counted, not made to disappear by expanding
+       them (the brief is explicit: "do not expand numerals to make the
+       count go down").
+    2. "oov": characters in normalize()'s output that aren't in ALLOWED.
+       Skipped for records already flagged as a §3a violation, since those
+       are reported there instead.
+    3. "empties": records whose text_raw is non-empty but normalizes to "".
+
+    Returns counts and up to _MAX_EXAMPLES example transcripts per bucket.
+    Does not decide anything — per the brief, a human reads this output and
+    decides what (if anything) to do about it.
+    """
+    violations: dict[str, dict] = {}
+    oov: dict[str, dict] = {}
+    empties: dict[str, dict] = {}
+
+    for _, record in _iter_inventory_records(path):
+        text_raw = record["text_raw"]
+        source = record["source"]
+
+        if violates_transcription_convention(text_raw):
+            bucket = violations.setdefault(source, {"count": 0, "examples": []})
+            bucket["count"] += 1
+            if len(bucket["examples"]) < _MAX_EXAMPLES:
+                bucket["examples"].append(text_raw)
+            continue
+
+        normalized = normalize(text_raw)
+
+        for ch in set(normalized) - ALLOWED:
+            entry = oov.setdefault(ch, {"count": 0, "by_source": {}, "examples": {}})
+            entry["count"] += 1
+            entry["by_source"][source] = entry["by_source"].get(source, 0) + 1
+            examples = entry["examples"].setdefault(source, [])
+            if len(examples) < _MAX_EXAMPLES:
+                examples.append(text_raw)
+
+        if text_raw.strip() and not normalized:
+            bucket = empties.setdefault(source, {"count": 0, "examples": []})
+            bucket["count"] += 1
+            if len(bucket["examples"]) < _MAX_EXAMPLES:
+                bucket["examples"].append(text_raw)
+
+    return {"violations": violations, "oov": oov, "empties": empties}
+
+
+def _print_report(report: dict) -> None:
+    print("=== §3a convention violations (digit, currency symbol, or %) ===")
+    if not report["violations"]:
+        print("  none")
+    for source in sorted(report["violations"]):
+        bucket = report["violations"][source]
+        print(f"  {source}: {bucket['count']}")
+        for example in bucket["examples"]:
+            print(f"    e.g. {example!r}")
+
+    print()
+    print("=== Out-of-vocabulary characters (after normalize()) ===")
+    if not report["oov"]:
+        print("  none")
+    for ch in sorted(report["oov"]):
+        entry = report["oov"][ch]
+        by_source = ", ".join(
+            f"{source}={n}" for source, n in sorted(entry["by_source"].items())
+        )
+        print(f"  {ch!r} (U+{ord(ch):04X}): {entry['count']} occurrences [{by_source}]")
+        for source, examples in entry["examples"].items():
+            for example in examples:
+                print(f"    e.g. ({source}) {example!r}")
+
+    print()
+    print("=== Non-empty transcripts that normalize to empty ===")
+    if not report["empties"]:
+        print("  none")
+    for source in sorted(report["empties"]):
+        bucket = report["empties"][source]
+        print(f"  {source}: {bucket['count']}")
+        for example in bucket["examples"]:
+            print(f"    e.g. {example!r}")
+
+
+def main(argv=None) -> None:
+    parser = argparse.ArgumentParser(prog="python -m idem.normalize")
+    parser.add_argument(
+        "--check",
+        metavar="INVENTORY_JSONL",
+        required=True,
+        help="JSONL file with 'text_raw' and 'source' fields per record "
+        "(e.g. v5_inventory.jsonl)",
+    )
+    args = parser.parse_args(argv)
+    report = check_corpus(args.check)
+    _print_report(report)
+
+
+if __name__ == "__main__":
+    main()
