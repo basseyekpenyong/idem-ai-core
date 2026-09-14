@@ -13,11 +13,16 @@ Also runnable as a corpus-level check:
 
 See check_corpus() below for what it reports.
 
+Per CLAUDE-BRIEF §3a: transcripts record what was spoken, not the written
+form ("fifty dollars", not "$50"; "third", not "3rd"). normalize() never
+sees the audio, so a digit, currency symbol, or percent sign reaching it
+means the transcript itself is wrong, not something normalize() can repair.
+It raises ConventionViolation rather than guess which spoken form the
+numeral stood for.
+
 NOT yet implemented (out of scope until real corpus text justifies a specific
 choice — see the TODO in tests/test_normalize.py):
   - noise tokens (<UNK>, <NON_SPEECH_NOISE>)
-  - ordinals ("23rd")
-  - currency ("$100")
 """
 
 import argparse
@@ -25,23 +30,32 @@ import json
 import re
 import unicodedata
 
-from num2words import num2words
-
 ALLOWED = set("abcdefghijklmnopqrstuvwxyz' ")
+
+
+class ConventionViolation(Exception):
+    """Raised when text_raw breaks the §3a transcription convention.
+
+    Not a ValueError: this is a data problem in the corpus, not a bad
+    argument, and it shouldn't be caught by accident by generic
+    `except ValueError` handling elsewhere.
+    """
+
 
 # A digit, a currency symbol, or a percent sign means the transcript recorded
 # a written form rather than what was spoken (CLAUDE-BRIEF §3a: "fifty
 # dollars", not "$50"; "third", not "3rd"). normalize() cannot repair this —
 # it never sees the audio, so it has no way to know which spoken reading a
 # numeral stood for. This detector is the one place that question gets
-# answered, so that check_corpus() and any future revision of step 3 (which
-# will raise on exactly this) share it instead of each guessing separately.
+# answered, so that check_corpus() and normalize()'s step 3 share it instead
+# of each guessing separately.
 _CONVENTION_VIOLATION_RE = re.compile(r"[0-9$₦£€%]")
 
 
 def violates_transcription_convention(text: str) -> bool:
     """True if text_raw contains a digit, currency symbol, or percent sign."""
     return bool(_CONVENTION_VIOLATION_RE.search(text))
+
 
 # Step 2: Unicode lookalikes mapped to their plain-ASCII equivalents, done
 # before punctuation removal so curly apostrophes survive as straight ones
@@ -54,35 +68,6 @@ _LOOKALIKES = {
     "–": "-",   # – en dash
     "—": "-",   # — em dash
 }
-
-# A comma-grouped number ("3,500", "350,000") must be matched as one token —
-# tried first, since regex alternation tries options left-to-right at each
-# position — otherwise a plain \d+ would split it into "3" and "500" and
-# read them as two unrelated numbers instead of one.
-_DIGIT_RUN_RE = re.compile(r"\d{1,3}(?:,\d{3})+|\d+")
-
-
-def _expand_digit_run(match: re.Match) -> str:
-    """
-    Expand one run of digits to words.
-
-    ASSUMPTION — flag before relying on it: a bare, non-comma-grouped 4-digit
-    run is treated as a year ("1995" -> "nineteen ninety-five"); everything
-    else is a plain cardinal number ("23" -> "twenty-three", "3,500" ->
-    "three thousand, five hundred"). A comma-grouped run is never treated as
-    a year — nobody writes a year as "1,998". This satisfies the one digit
-    test the brief specifies today, but it's a guess about which transcripts
-    contain years vs. plain counts. It's also known wrong for phone numbers
-    and reference IDs (e.g. "08031245678"), which real speech reads
-    digit-by-digit rather than as one huge number — that's an open decision,
-    not yet implemented; see the Stage C findings sent for review.
-    """
-    raw = match.group()
-    digits = raw.replace(",", "")
-    value = int(digits)
-    if "," not in raw and len(digits) == 4:
-        return num2words(value, to="year")
-    return num2words(value)
 
 
 def _is_removable_punctuation(ch: str) -> bool:
@@ -107,20 +92,25 @@ def normalize(text: str) -> str:
     for lookalike, plain in _LOOKALIKES.items():
         text = text.replace(lookalike, plain)
 
-    # 3. Expand digit runs to words. Must run before step 4 (hyphens), since
-    # num2words emits hyphens ("twenty-three") that step 4 needs to see.
-    text = _DIGIT_RUN_RE.sub(_expand_digit_run, text)
+    # 3. Do not expand digits. A written numeral has already lost which
+    # spoken form it stood for (§3a) — normalize() never sees the audio, so
+    # any expansion it performed would be a silent guess. Raise instead, so
+    # the corpus scan (check_corpus) can catch these in bulk rather than
+    # training or scoring silently on a guessed reading.
+    if violates_transcription_convention(text):
+        raise ConventionViolation(
+            "text violates the §3a transcription convention (contains a "
+            f"digit, currency symbol, or percent sign): {text!r}"
+        )
 
-    # 4. Hyphens become spaces — both literal hyphens already in the text and
-    # ones num2words just introduced in step 3.
+    # 4. Hyphens become spaces.
     text = text.replace("-", " ")
 
     # 5. Replace all remaining punctuation with a space (apostrophe excepted).
-    # A space, not deletion — punctuation sitting directly between two tokens
-    # with no surrounding whitespace (the comma num2words leaves inside
-    # "three thousand, five hundred", or a source comma in "3,500" before
-    # step 3 even runs on it) would otherwise fuse the two tokens into one
-    # unreadable word. Step 7 collapses any resulting extra whitespace.
+    # A space, not deletion — punctuation sitting directly between two words
+    # with no surrounding whitespace (a colon, a comma) would otherwise fuse
+    # them into one unreadable token. Step 7 collapses any resulting extra
+    # whitespace.
     text = "".join(" " if _is_removable_punctuation(ch) else ch for ch in text)
 
     # 6. Lowercase. Runs after the token-based steps above.
@@ -164,15 +154,14 @@ def check_corpus(path: str) -> dict:
     brief's Stage C acceptance requires, each grouped by source:
 
     1. "violations": records whose text_raw contains a digit, currency
-       symbol, or percent sign (CLAUDE-BRIEF §3a). Detected directly on the
-       raw text, independent of what normalize() currently does with it —
-       even though step 3 today still expands these instead of rejecting
-       them, they must still be counted, not made to disappear by expanding
-       them (the brief is explicit: "do not expand numerals to make the
-       count go down").
+       symbol, or percent sign (CLAUDE-BRIEF §3a). Checked directly on the
+       raw text before calling normalize() — normalize() raises
+       ConventionViolation on exactly this, and a corpus scan must keep
+       going and count every offending record rather than dying on the
+       first one (hard rule 3).
     2. "oov": characters in normalize()'s output that aren't in ALLOWED.
-       Skipped for records already flagged as a §3a violation, since those
-       are reported there instead.
+       Only checked for records that passed the violation check above,
+       since normalize() would otherwise raise before returning anything.
     3. "empties": records whose text_raw is non-empty but normalizes to "".
 
     Returns counts and up to _MAX_EXAMPLES example transcripts per bucket.

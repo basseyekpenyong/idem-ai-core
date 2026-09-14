@@ -5,17 +5,22 @@ No implementation exists yet (Stage C, v5 pipeline brief). These tests are
 written first so the implementation has something concrete to satisfy.
 """
 
-from idem.normalize import normalize
+import pytest
+
+from idem.normalize import ConventionViolation, normalize
 
 # Placeholder sample sentences for the idempotence/charset checks below.
 # These are illustrative, not drawn from the real corpus — Stage A (inventory)
 # hasn't run yet. Extend or replace with real transcript lines once it has.
+# None of these contain a digit, currency symbol, or percent sign — per §3a,
+# normalize() raises on those, so a sample used for a generic "normalize()
+# succeeds and produces well-formed output" check can't contain one.
 SAMPLES = [
     "Hello there.",
     "Don't worry, we go see am tomorrow.",
-    "It's a well-being programme for twenty-three families.",
+    "It's a well-being programme for many families.",
     'She said, "no wahala" and left.',
-    "In 1995, the government changed the policy.",
+    "The government changed the policy that year.",
 ]
 
 
@@ -33,21 +38,32 @@ def test_curly_and_straight_apostrophe_agree():
 def test_hyphen_becomes_space():
     # Hyphens must become spaces, not disappear. If they disappeared,
     # "well-being" would become "wellbeing" — one token instead of two,
-    # silently changing what the model is scored against. This also protects
-    # the required step ordering: hyphen-replacement runs after digit
-    # expansion, because num2words emits hyphens ("twenty-three") that must
-    # also turn into spaces rather than survive as literal hyphens.
+    # silently changing what the model is scored against.
     assert normalize("well-being") == "well being"
 
 
-def test_digits_expand():
-    # Digits must be spelled out as words, matching what was actually spoken.
-    # A model trained on "1995" as a numeral but scored against "nineteen
-    # ninety five" (or the reverse) would look wrong for a reason that has
-    # nothing to do with the model itself — a text-representation bug, not a
-    # model bug — and it needs to be caught here, not discovered later as an
-    # unexplained bad WER.
-    assert normalize("in 1995") == "in nineteen ninety five"
+def test_digits_raise():
+    # A numeral means the transcript broke the §3a convention: it recorded
+    # the written form, not what was spoken. normalize() never sees the
+    # audio, so it can't know whether "1995" was said as a year, and
+    # expanding it anyway would be a silent guess — the same class of bug as
+    # the divergent-cleaning discrepancy this rebuild exists to fix, just
+    # moved into the guess itself. It must refuse rather than guess.
+    with pytest.raises(ConventionViolation):
+        normalize("in 1995")
+
+
+def test_currency_symbol_raises():
+    # "$50" is the written form of several possible spoken readings ("fifty
+    # dollars", "fifty bucks"); normalize() can't tell which was said, so a
+    # currency symbol must raise for the same reason a bare digit does.
+    with pytest.raises(ConventionViolation):
+        normalize("it cost $50")
+
+
+def test_percent_sign_raises():
+    with pytest.raises(ConventionViolation):
+        normalize("50% of the class")
 
 
 def test_idempotent():
@@ -80,33 +96,26 @@ def test_no_empty_from_nonempty():
     assert normalize("Hello there.") != ""
 
 
-def test_comma_grouped_number_reads_as_one_number():
-    # "3,500" must be read as one number ("three thousand, five hundred"),
-    # not as two separate numbers "3" and "500". Found against a real
-    # transcript ("...trained more than 3,500 young people"): the old digit
-    # regex matched "3" and "500" independently, and the literal comma
-    # between them — with no surrounding whitespace — then vanished during
-    # punctuation removal, producing the nonsense word "threefive hundred".
-    assert normalize("3,500") == "three thousand five hundred"
+def test_comma_without_whitespace_becomes_space():
+    # A comma directly between two words with no surrounding whitespace must
+    # become a space, not disappear — otherwise the words on either side
+    # fuse into one unreadable token. This used to be tested with a
+    # comma-grouped number ("3,500" -> "three thousand five hundred"), found
+    # against a real transcript where the old digit regex matched "3" and
+    # "500" separately and the comma between them vanished, producing
+    # "threefive hundred". Digits now raise before reaching this step
+    # (§3a, rev 5), so the same word-gluing invariant is tested here against
+    # non-digit text instead of deleting the test.
+    assert normalize("yes,no") == "yes no"
 
 
 def test_punctuation_removal_does_not_glue_words():
-    # Punctuation with no surrounding whitespace (a decimal point, a colon)
-    # must become a space, not disappear — otherwise the words on either
-    # side fuse into one unreadable token. Found against a real transcript
-    # ("...weighs 12.5 kilograms..."), which produced "twelvefive kilograms"
-    # before this fix. This does not make decimals fully correct — "twelve
-    # five" is not "twelve point five" — it only stops the word-gluing; true
-    # decimal handling is still an open question (see TODO below).
-    assert normalize("12.5") == "twelve five"
-
-
-# ---------------------------------------------------------------------------
-# TODO — corpus-derived digit edge cases (years, ordinals, currency)
-#
-# The brief requires test cases for the num2words forms that actually appear
-# in the transcripts, not hypothetical ones. That needs real transcript text,
-# which doesn't exist yet — Stage A (inventory) hasn't run. Once
-# v5_inventory.jsonl exists, pull real examples containing years, ordinals,
-# and currency amounts and add tests here before treating normalize() as done.
-# ---------------------------------------------------------------------------
+    # Punctuation with no surrounding whitespace (a colon, here) must become
+    # a space, not disappear — otherwise the words on either side fuse into
+    # one unreadable token. This used to be tested with a decimal point
+    # ("12.5" -> "twelve five"), found against a real transcript
+    # ("...weighs 12.5 kilograms...") that produced "twelvefive kilograms"
+    # before that fix. Digits now raise before reaching this step (§3a,
+    # rev 5), so the invariant is tested here against non-digit text instead
+    # of deleting the test.
+    assert normalize("wait:go") == "wait go"
