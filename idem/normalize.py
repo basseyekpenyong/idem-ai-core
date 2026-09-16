@@ -138,9 +138,12 @@ _MAX_EXAMPLES = 5  # brief's Stage C acceptance: "five example transcripts"
 def _iter_inventory_records(path: str):
     """Yield (line_number, record) from a JSONL inventory file.
 
-    Fails loudly on anything unparseable or missing the two fields this scan
-    needs (hard rule 2) — a corpus scan that silently skipped bad records
-    could report a clean corpus that isn't.
+    Fails loudly on anything unparseable or missing a field this scan needs
+    (hard rule 2) — a corpus scan that silently skipped bad records could
+    report a clean corpus that isn't. "id" is required alongside text_raw
+    and source (not just used if present) because every example this scan
+    reports needs one: a human reading "slr70: 412" with five bare sentences
+    has no way back to the actual records without it.
     """
     with open(path, encoding="utf-8") as f:
         for lineno, line in enumerate(f, start=1):
@@ -151,7 +154,7 @@ def _iter_inventory_records(path: str):
                 record = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise ValueError(f"{path}:{lineno}: invalid JSON: {exc}") from exc
-            for field in ("text_raw", "source"):
+            for field in ("id", "text_raw", "source"):
                 if field not in record:
                     raise ValueError(
                         f"{path}:{lineno}: record missing required field {field!r}"
@@ -175,23 +178,39 @@ def check_corpus(path: str) -> dict:
        are reported there instead.
     3. "empties": records whose text_raw is non-empty but normalizes to "".
 
-    Returns counts and up to _MAX_EXAMPLES example transcripts per bucket.
+    Also returns "totals" (record count per source) and "total_records"
+    (overall). A bare count like "slr70: 412" is meaningless without knowing
+    whether that's out of 500 records or 130,000, and hard rule 3's "a
+    filter dropping over 1% stops for human investigation" can't be applied
+    to this report's own output without a denominator to measure against.
+
+    Each example carries its "id" and source-file "line" alongside the
+    text, not just the text — a human reading a bucket has to go find and
+    fix the record it names, and grepping the inventory for a sentence
+    fragment doesn't scale.
+
     Does not decide anything — per the brief, a human reads this output and
     decides what (if anything) to do about it.
     """
     violations: dict[str, dict] = {}
     oov: dict[str, dict] = {}
     empties: dict[str, dict] = {}
+    totals: dict[str, int] = {}
+    total_records = 0
 
-    for _, record in _iter_inventory_records(path):
+    for lineno, record in _iter_inventory_records(path):
         text_raw = record["text_raw"]
         source = record["source"]
+        example = {"id": record["id"], "line": lineno, "text": text_raw}
+
+        total_records += 1
+        totals[source] = totals.get(source, 0) + 1
 
         if violates_transcription_convention(text_raw):
             bucket = violations.setdefault(source, {"count": 0, "examples": []})
             bucket["count"] += 1
             if len(bucket["examples"]) < _MAX_EXAMPLES:
-                bucket["examples"].append(text_raw)
+                bucket["examples"].append(example)
             continue
 
         normalized = normalize(text_raw)
@@ -202,26 +221,48 @@ def check_corpus(path: str) -> dict:
             entry["by_source"][source] = entry["by_source"].get(source, 0) + 1
             examples = entry["examples"].setdefault(source, [])
             if len(examples) < _MAX_EXAMPLES:
-                examples.append(text_raw)
+                examples.append(example)
 
         if text_raw.strip() and not normalized:
             bucket = empties.setdefault(source, {"count": 0, "examples": []})
             bucket["count"] += 1
             if len(bucket["examples"]) < _MAX_EXAMPLES:
-                bucket["examples"].append(text_raw)
+                bucket["examples"].append(example)
 
-    return {"violations": violations, "oov": oov, "empties": empties}
+    return {
+        "violations": violations,
+        "oov": oov,
+        "empties": empties,
+        "totals": totals,
+        "total_records": total_records,
+    }
+
+
+def _format_count(count: int, total: int) -> str:
+    """"count" against "total" as a reader can judge against hard rule 3's
+    1% threshold without doing the division themselves."""
+    if total == 0:
+        return str(count)
+    return f"{count} / {total:,} ({100 * count / total:.1f}%)"
+
+
+def _print_example(example: dict, indent: str) -> None:
+    print(f"{indent}e.g. [id={example['id']} line={example['line']}] {example['text']!r}")
 
 
 def _print_report(report: dict) -> None:
+    totals = report["totals"]
+    print(f"Scanned {report['total_records']:,} records.")
+
+    print()
     print("=== §3a convention violations (digit, currency symbol, or %) ===")
     if not report["violations"]:
         print("  none")
     for source in sorted(report["violations"]):
         bucket = report["violations"][source]
-        print(f"  {source}: {bucket['count']}")
+        print(f"  {source}: {_format_count(bucket['count'], totals.get(source, 0))}")
         for example in bucket["examples"]:
-            print(f"    e.g. {example!r}")
+            _print_example(example, "    ")
 
     print()
     print("=== Out-of-vocabulary characters (after normalize()) ===")
@@ -229,13 +270,12 @@ def _print_report(report: dict) -> None:
         print("  none")
     for ch in sorted(report["oov"]):
         entry = report["oov"][ch]
-        by_source = ", ".join(
-            f"{source}={n}" for source, n in sorted(entry["by_source"].items())
-        )
-        print(f"  {ch!r} (U+{ord(ch):04X}): {entry['count']} occurrences [{by_source}]")
-        for source, examples in entry["examples"].items():
-            for example in examples:
-                print(f"    e.g. ({source}) {example!r}")
+        print(f"  {ch!r} (U+{ord(ch):04X}): {entry['count']} occurrences")
+        for source in sorted(entry["by_source"]):
+            n = entry["by_source"][source]
+            print(f"    {source}: {_format_count(n, totals.get(source, 0))}")
+            for example in entry["examples"].get(source, []):
+                _print_example(example, "      ")
 
     print()
     print("=== Non-empty transcripts that normalize to empty ===")
@@ -243,9 +283,9 @@ def _print_report(report: dict) -> None:
         print("  none")
     for source in sorted(report["empties"]):
         bucket = report["empties"][source]
-        print(f"  {source}: {bucket['count']}")
+        print(f"  {source}: {_format_count(bucket['count'], totals.get(source, 0))}")
         for example in bucket["examples"]:
-            print(f"    e.g. {example!r}")
+            _print_example(example, "    ")
 
 
 def main(argv=None) -> None:
@@ -254,8 +294,8 @@ def main(argv=None) -> None:
         "--check",
         metavar="INVENTORY_JSONL",
         required=True,
-        help="JSONL file with 'text_raw' and 'source' fields per record "
-        "(e.g. v5_inventory.jsonl)",
+        help="JSONL file with 'id', 'text_raw', and 'source' fields per "
+        "record (e.g. v5_inventory.jsonl)",
     )
     args = parser.parse_args(argv)
     report = check_corpus(args.check)
